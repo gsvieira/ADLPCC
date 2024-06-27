@@ -121,11 +121,18 @@ def train(args):
 
     # Compute rate: Total number of bits divided by number of points
     num_input_points = tf.reduce_sum(x)
-    train_bpp = (tf.reduce_sum(tf.log(y_likelihoods)) + tf.reduce_sum(tf.log(z_likelihoods))) / (
-                -np.log(2) * num_input_points)
+    bpp_y = (tf.reduce_sum(tf.log(y_likelihoods))) / (-np.log(2) * num_input_points)
+    bpp_z = (tf.reduce_sum(tf.log(z_likelihoods))) / (-np.log(2) * num_input_points)
+    train_bpp = bpp_y + bpp_z
+    norm_bpp_diff = (bpp_y + bpp_z - args.target_rate) / args.target_rate
+    r_target = norm_bpp_diff ** 2
+    
+    
+    
+    # r_target
 
     # Compute the rate-distortion cost
-    train_loss = train_mse + (args.lmbda * train_bpp)
+    train_loss = train_mse + (args.lmbda * r_target)
 
     # Minimize loss and auxiliary loss, and execute update op
     step = tf.train.create_global_step()
@@ -143,9 +150,10 @@ def train(args):
     tf.summary.scalar("1_loss", train_loss)
     tf.summary.scalar("2_mse", train_mse)
     tf.summary.scalar("3_bpp", train_bpp)
-    tf.summary.scalar("4_count_ratio", tf.reduce_mean(count_ratio))
-    tf.summary.scalar("5_count_in_real", tf.reduce_mean(num_input_points))
-    tf.summary.scalar("6_count_out_real", tf.reduce_mean(rec_count_real))
+    tf.summary.scalar("4_target_rate", r_target)
+    tf.summary.scalar("5_count_ratio", tf.reduce_mean(count_ratio))
+    tf.summary.scalar("6_count_in_real", tf.reduce_mean(num_input_points))
+    tf.summary.scalar("7_count_out_real", tf.reduce_mean(rec_count_real))
     tf.summary.histogram("x_tilde", x_tilde)
     tf.summary.histogram("y_tilde", y_tilde)
     tf.summary.histogram("y", y)
@@ -259,6 +267,10 @@ def compress(args):
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), "wb") as f:
             pickle.dump([args.blk_size, best_model, blk_map, final_bitstream], f)
+        
+        with open(os.path.join(stream_dir, pc_filename + "_statistics.txt"), "w") as f:
+            f.write(f"bpp: {bpp}\n")
+            # f.write(f"total_cost: {total_cost}")
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), 'rb') as f_in:
             with gzip.open(os.path.join(stream_dir, pc_filename + ".pkl.gz"), 'wb') as f_out:
@@ -390,6 +402,10 @@ def parse_args(argv):
     train_cmd.add_argument(
         "--fl_gamma", type=float, default=2.0,
         help="Focusing weight for Focal Loss.")
+    train_cmd.add_argument(
+        "--target_rate", type=float, default=1.0,
+        help="Target rate trying to achieve"
+    )
 
     # 'compress' subcommand
     compress_cmd = subparsers.add_parser(
