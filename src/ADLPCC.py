@@ -43,6 +43,7 @@ import numpy as np
 import pickle
 import gzip
 import shutil
+import gc
 
 from absl import app
 from absl.flags import argparse_flags
@@ -85,6 +86,11 @@ def train(args):
         vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
 
     # Shuffle all blocks
+    del in_points
+    del blocks
+    del total_blocks
+    gc.collect()
+    
     np.random.shuffle(vox_data)
 
     train_data_placeholder = tf.placeholder(vox_data.dtype, vox_data.shape)
@@ -110,29 +116,34 @@ def train(args):
     y = analysis_transform(x)
     z = hyper_analysis_transform(abs(y))
     z_tilde, z_likelihoods = entropy_bottleneck(z, training=True)
+    z_tilde, z_hat_likelihoods = entropy_bottleneck(z, training=False)
     sigma = hyper_synthesis_transform(z_tilde)
     scale_table = np.exp(np.linspace(np.log(SCALES_MIN), np.log(SCALES_MAX), SCALES_LEVELS))
     conditional_bottleneck = tfc.GaussianConditional(sigma, scale_table)
     y_tilde, y_likelihoods = conditional_bottleneck(y, training=True)
+    y_hat, y_hat_likelihoods = conditional_bottleneck(y, training=False)
+    
     x_tilde = synthesis_transform(y_tilde)
+    x_hat = synthesis_transform(y_hat)
 
     # Compute distortion: Focal Loss
-    train_mse = loss_functions.focal_loss(x, x_tilde, gamma=args.fl_gamma, alpha=args.fl_alpha)
+    train_focal = loss_functions.focal_loss(x, x_tilde, gamma=args.fl_gamma, alpha=args.fl_alpha)
+    
 
     # Compute rate: Total number of bits divided by number of points
     num_input_points = tf.reduce_sum(x)
-    bpp_y = (tf.reduce_sum(tf.log(y_likelihoods))) / (-np.log(2) * num_input_points)
-    bpp_z = (tf.reduce_sum(tf.log(z_likelihoods))) / (-np.log(2) * num_input_points)
-    train_bpp = bpp_y + bpp_z
-    norm_bpp_diff = (bpp_y + bpp_z - args.target_rate) / args.target_rate
-    r_target = norm_bpp_diff ** 2
-    
-    
+    bpv_y = (tf.reduce_sum(tf.log(y_likelihoods))) / (-np.log(2) * num_input_points)
+    bpv_z = (tf.reduce_sum(tf.log(z_likelihoods))) / (-np.log(2) * num_input_points)
+    bpv_y_hat = (tf.reduce_sum(tf.log(y_hat_likelihoods))) / (-np.log(2) * num_input_points)
+    bpv_z_hat = (tf.reduce_sum(tf.log(z_hat_likelihoods))) / (-np.log(2) * num_input_points)
+    train_bpv = bpv_y + bpv_z
+    quantized_bpv = bpv_y_hat + bpv_z_hat
+    norm_bpv_diff = (bpv_y + bpv_z - args.target_rate) / args.target_rate
+    r_target = norm_bpv_diff ** 2
     
     # r_target
-
     # Compute the rate-distortion cost
-    train_loss = train_mse + (args.lmbda * r_target)
+    train_loss = train_focal + (args.beta * r_target)
 
     # Minimize loss and auxiliary loss, and execute update op
     step = tf.train.create_global_step()
@@ -143,14 +154,15 @@ def train(args):
     aux_step = aux_optimizer.minimize(entropy_bottleneck.losses[0])
 
     train_op = tf.group(main_step, aux_step, entropy_bottleneck.updates[0])
+    
 
     # Write summaries for Tensorboard visualization
     rec_count_real = tf.reduce_sum(tf.cast(tf.greater_equal(x_tilde, 0.5), tf.float32))
     count_ratio = rec_count_real / num_input_points
     tf.summary.scalar("1_loss", train_loss)
-    tf.summary.scalar("2_mse", train_mse)
-    tf.summary.scalar("3_bpp", train_bpp)
-    tf.summary.scalar("4_target_rate", r_target)
+    tf.summary.scalar("2_focal", train_focal)
+    tf.summary.scalar("3_bpv", train_bpv)
+    tf.summary.scalar("4_quantized_bpv", quantized_bpv)
     tf.summary.scalar("5_count_ratio", tf.reduce_mean(count_ratio))
     tf.summary.scalar("6_count_in_real", tf.reduce_mean(num_input_points))
     tf.summary.scalar("7_count_out_real", tf.reduce_mean(rec_count_real))
@@ -249,10 +261,10 @@ def compress(args):
                     # Compute block bitrate
                     packed = tfc.PackedTensors()
                     packed.pack(tensors, arrays)
-                    bpp = len(packed.string) * 8 / num_blk_points
+                    bpv = len(packed.string) * 8 / num_blk_points
                     # Compute block RD cost
                     mse = loss_functions.point2point(temp_blk, pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5)))
-                    total_cost[i, j] = mse + (args.lmbda * bpp)
+                    total_cost[i, j] = mse + (args.beta * bpv)
 
                     bitstream.extend([packed.string])
 
@@ -269,7 +281,7 @@ def compress(args):
             pickle.dump([args.blk_size, best_model, blk_map, final_bitstream], f)
         
         with open(os.path.join(stream_dir, pc_filename + "_statistics.txt"), "w") as f:
-            f.write(f"bpp: {bpp}\n")
+            f.write(f"bpv: {bpv}\n")
             # f.write(f"total_cost: {total_cost}")
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), 'rb') as f_in:
@@ -394,8 +406,8 @@ def parse_args(argv):
         "--last_step", type=int, default=1000000,
         help="Train up to this number of steps.")
     train_cmd.add_argument(
-        "--lambda", type=float, default=1000, dest="lmbda",
-        help="Lambda for rate-distortion tradeoff.")
+        "--beta", type=float, default=1000, dest="beta",
+        help="Beta for rate-distortion tradeoff.")
     train_cmd.add_argument(
         "--fl_alpha", type=float, default=0.75,
         help="Class balancing weight for Focal Loss.")
@@ -424,8 +436,8 @@ def parse_args(argv):
         "--blk_size", type=int, default=64,
         help="Size of the 3D coding block units.")
     compress_cmd.add_argument(
-        "--lambda", type=float, default=0, dest="lmbda",
-        help="Lambda for RD trade-off when selecting best DL coding model.")
+        "--beta", type=float, default=0, dest="beta",
+        help="Beta for RD trade-off when selecting best DL coding model.")
 
     # 'decompress' subcommand
     decompress_cmd = subparsers.add_parser(
