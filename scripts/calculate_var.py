@@ -1,12 +1,12 @@
 from pathlib import Path
 import numpy as np
 
-lambdas = [500, 1000, 2000, 3000]
+betas = [500, 1000, 2000, 3000]
 Experiment = 4
 basepath = f"/home/gabriel/PCC_fernando/results/ADLPCC/Experiment_{Experiment}/"
 
-for lamb in lambdas:
-    dirpath = Path(basepath).joinpath(f"lambda_{lamb}")
+for lamb in betas:
+    dirpath = Path(basepath).joinpath(f"beta_{lamb}")
     files = sorted(dirpath.glob("*.txt"))
     for file in files:
         bpp = []

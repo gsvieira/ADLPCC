@@ -1,22 +1,22 @@
 clouds=(House Klimt Longdress Queen)
-lambdas=(500 1000 2000 3000)
+betas=(500 1000 2000 3000)
 alphas=(9)
 experiment=4
 basedir=/home/gabriel/PCC_fernando
 r_targets=(0)
 
 for r_target in "${r_targets[@]}"; do
-    for lambda in "${lambdas[@]}"; do
+    for beta in "${betas[@]}"; do
         for cloud in "${clouds[@]}"; do 
             for alpha in "${alphas[@]}"; do 
-                python ${basedir}/ADLPCC/src/ADLPCC.py compress "/home/valeska/MPEG_Down/Testing/${cloud}.ply" "${basedir}/Training_150k/Experiment_${experiment}/${lambda}/0.${alpha}/r_target2.${r_target}/"
+                python ${basedir}/ADLPCC/src/ADLPCC.py compress "/home/valeska/MPEG_Down/Testing/${cloud}.ply" "${basedir}/Training_150k/Experiment_${experiment}/${beta}/0.${alpha}/r_target2.${r_target}/"
 
-                python ${basedir}/ADLPCC/src/ADLPCC.py decompress "${basedir}/ADLPCC/results/r_target2.${r_target}/${cloud}/${cloud}.pkl.gz" "${basedir}/Training_150k/Experiment_${experiment}/${lambda}/0.${alpha}/r_target2.${r_target}/"
+                python ${basedir}/ADLPCC/src/ADLPCC.py decompress "${basedir}/ADLPCC/results/r_target2.${r_target}/${cloud}/${cloud}.pkl.gz" "${basedir}/Training_150k/Experiment_${experiment}/${beta}/0.${alpha}/r_target2.${r_target}/"
 
                 python ${basedir}/scripts/psnr.py --input "/home/valeska/MPEG_Down/Testing/${cloud}.ply" --target "/home/gabriel/PCC_fernando/ADLPCC/results/r_target2.${r_target}/${cloud}/${cloud}.pkl.gz.dec.ply" --result "${basedir}/ADLPCC/results/r_target2.${r_target}/${cloud}/"
 
-                mkdir -p ${basedir}/ADLPCC/results/${lambda}/0.${alpha}/${cloud}/r_target2.${r_target}/
-                mv ${basedir}/ADLPCC/results/r_target2.${r_target}/${cloud}/* ${basedir}/ADLPCC/results/${lambda}/0.${alpha}/${cloud}/r_target2.${r_target}/
+                mkdir -p ${basedir}/ADLPCC/results/${beta}/0.${alpha}/${cloud}/r_target2.${r_target}/
+                mv ${basedir}/ADLPCC/results/r_target2.${r_target}/${cloud}/* ${basedir}/ADLPCC/results/${beta}/0.${alpha}/${cloud}/r_target2.${r_target}/
             done
         done
     done
