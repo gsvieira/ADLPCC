@@ -1,7 +1,7 @@
 clouds=(Klimt Longdress House Queen)
-betas=(500 1000 2000 3000)
+betas=(500 3000)
 alphas=(9)
-experiment=4
+experiment=5
 basedir=/home/gabriel/PCC_fernando
 
 for alpha in "${alphas[@]}"; do 
