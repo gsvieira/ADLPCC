@@ -141,9 +141,15 @@ def train(args):
     norm_bpv_diff = (bpv_y + bpv_z - args.target_rate) / args.target_rate
     r_target = norm_bpv_diff ** 2
     
+    
+    norm_distortion_diff = (train_focal - args.target_distortion) / args.target_distortion
+    d_target = norm_distortion_diff **2
+    
     # r_target
     # Compute the rate-distortion cost
-    train_loss = train_focal + (args.beta * r_target)
+    # train_loss = train_focal + (args.beta * r_target)
+    
+    train_loss = train_bpv + d_target * args.beta 
 
     # Minimize loss and auxiliary loss, and execute update op
     step = tf.train.create_global_step()
@@ -417,6 +423,10 @@ def parse_args(argv):
     train_cmd.add_argument(
         "--target_rate", type=float, default=1.0,
         help="Target rate trying to achieve"
+    )
+    train_cmd.add_argument(
+        "--target_distortion", type=float, default=1.0,
+        help="Target distortion trying to achieve"
     )
 
     # 'compress' subcommand
