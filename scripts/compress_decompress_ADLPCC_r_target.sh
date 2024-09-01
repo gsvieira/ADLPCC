@@ -4,14 +4,15 @@ alphas=(9)
 experiment=5
 basedir=/home/gabriel/PCC_fernando
 r_targets=(5)
+experiment_steps=1000k
 
 for r_target in "${r_targets[@]}"; do
     for beta in "${betas[@]}"; do
         for cloud in "${clouds[@]}"; do 
             for alpha in "${alphas[@]}"; do 
-                python ${basedir}/ADLPCC/src/ADLPCC.py compress "/home/valeska/MPEG_Down/Testing/${cloud}.ply" "${basedir}/Training_500k/Experiment_${experiment}/${beta}/0.${alpha}/r_target0.${r_target}/"
+                python ${basedir}/ADLPCC/src/ADLPCC.py compress "/home/valeska/MPEG_Down/Testing/${cloud}.ply" "${basedir}/Experiment_${experiment}/Training_${experiment_steps}/${beta}/0.${alpha}/r_target0.${r_target}/"
 
-                python ${basedir}/ADLPCC/src/ADLPCC.py decompress "${basedir}/ADLPCC/results/r_target0.${r_target}/${cloud}/${cloud}.pkl.gz" "${basedir}/Training_500k/Experiment_${experiment}/${beta}/0.${alpha}/r_target0.${r_target}/"
+                python ${basedir}/ADLPCC/src/ADLPCC.py decompress "${basedir}/ADLPCC/results/r_target0.${r_target}/${cloud}/${cloud}.pkl.gz" "${basedir}/Experiment_${experiment}/Training_${experiment_steps}/${beta}/0.${alpha}/r_target0.${r_target}/"
 
                 python ${basedir}/ADLPCC/scripts/psnr.py --input "/home/valeska/MPEG_Down/Testing/${cloud}.ply" --target "/home/gabriel/PCC_fernando/ADLPCC/results/r_target0.${r_target}/${cloud}/${cloud}.pkl.gz.dec.ply" --result "${basedir}/ADLPCC/results/r_target0.${r_target}/${cloud}/"
 
