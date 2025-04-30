@@ -249,6 +249,7 @@ def compress(args):
 
         total_cost = np.zeros([len(blocks), len(model_names)], np.float)
         total_bitstream = []
+        total_focal_losses = np.zeros([len(blocks), len(model_names)], np.float)
 
         # Iterate each model
         for j in range(len(model_names)):
@@ -270,9 +271,11 @@ def compress(args):
                     bpv = len(packed.string) * 8 / num_blk_points
                     # Compute block RD cost
                     mse = loss_functions.point2point(temp_blk, pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5)))
+                    focal = sess.run(loss_functions.focal_loss(pc2vox.point2vox(temp_blk, args.blk_size), x_rec, 2, 0.9))
                     total_cost[i, j] = mse + (args.beta * bpv)
 
                     bitstream.extend([packed.string])
+                    total_focal_losses[i, j] = focal
 
                 total_bitstream.extend([bitstream])
 
@@ -282,12 +285,14 @@ def compress(args):
         best_model = np.argmin(total_cost, axis=1)
 
         final_bitstream = [total_bitstream[best_model[i]][i] for i in range(len(blocks))]
+        final_focal_loss = [total_focal_losses[i][best_model[i]] for i in range(len(blocks))]
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), "wb") as f:
             pickle.dump([args.blk_size, best_model, blk_map, final_bitstream], f)
         
         with open(os.path.join(stream_dir, pc_filename + "_statistics.txt"), "w") as f:
             f.write(f"bpv: {bpv}\n")
+            f.write("Final Focal Losses: " + ', '.join(map(str, final_focal_loss)) + '\n')
             # f.write(f"total_cost: {total_cost}")
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), 'rb') as f_in:
