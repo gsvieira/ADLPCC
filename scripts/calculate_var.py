@@ -43,18 +43,20 @@ for lamb in betas:
             for i in range(len(cloudNames)):
                 f.write(f"{cloudNames[i]}\n")
                 f.write(f"BPV: {bpvlist[i]}\n")
-                f.write(F"PSNR: {psnrlist[i]}\n")
+                if psnrlist:
+                    f.write(F"PSNR: {psnrlist[i]}\n")
             
             f.write("\nBPV\n")
             f.write(f"mean: {npbpv.mean()}\n")
             f.write(f"var: {npbpv.var()}\n")
             f.write(f"min: {npbpv.min()}\n")
             f.write(f"max: {npbpv.max()}\n")
-            f.write("\nPSNR\n")
-            f.write(f"mean: {nppsnr.mean()}\n")
-            f.write(f"var: {nppsnr.var()}\n")
-            f.write(f"min: {nppsnr.min()}\n")
-            f.write(f"max: {nppsnr.max()}\n")
+            if psnrlist:
+                f.write("\nPSNR\n")
+                f.write(f"mean: {nppsnr.mean()}\n")
+                f.write(f"var: {nppsnr.var()}\n")
+                f.write(f"min: {nppsnr.min()}\n")
+                f.write(f"max: {nppsnr.max()}\n")
             i = 0
             for fline in focal:
                 npfocal = np.fromstring(fline, sep=', ')

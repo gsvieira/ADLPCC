@@ -45,6 +45,8 @@ import gzip
 import shutil
 import gc
 
+from pathlib import Path
+
 from absl import app
 from absl.flags import argparse_flags
 
@@ -70,26 +72,33 @@ def train(args):
     # Get the different models directory names
     pc_names = glob.glob(args.train_data)
 
-    total_blocks = []
-    for i in range(len(pc_names)):
-        # Load input PC, get list of coordinates
-        in_points = pc2vox.load_pc(pc_names[i])
-        # Divide PC into blocks of the desired size. Get list of relative coordinates for points in each block
-        blocks, _ = pc2vox.pc2blocks(in_points, 64)
-        # Ignore blocks with fewer than 500 points
-        total_blocks.extend([blk for blk in blocks if len(blk) >= 500])
+    SIZE_NUM=64
 
-    vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
-    # Iterate all blocks
-    for j in range(len(total_blocks)):
-        # Convert coordinates to 3D block
-        vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
+    # total_blocks = []
+    # for i in range(len(pc_names)):
+    #     # Load input PC, get list of coordinates
+    #     in_points = pc2vox.load_pc(pc_names[i])
+    #     # Divide PC into blocks of the desired size. Get list of relative coordinates for points in each block
+    #     blocks, _ = pc2vox.pc2blocks(in_points, 64)
+    #     # Ignore blocks with fewer than 500 points
+    #     total_blocks.extend([blk for blk in blocks if len(blk) >= 500])
+
+    # vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
+    # # Iterate all blocks
+    # for j in range(len(total_blocks)):
+    #     # Convert coordinates to 3D block
+    #     vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
+
+
+    vox_data = np.zeros([SIZE_NUM, 64, 64, 64, 1], dtype=np.float32)
+    for i in range(SIZE_NUM):
+        vox_data[i, :, :, :, :] = np.load(Path.joinpath(Path(pc_names[0]), f"block_{i:04d}.npy"))
 
     # Shuffle all blocks
-    del in_points
-    del blocks
-    del total_blocks
-    gc.collect()
+    # del in_points
+    # del blocks
+    # del total_blocks
+    # gc.collect()
     
     np.random.shuffle(vox_data)
 
@@ -199,6 +208,8 @@ def compress(args):
 
     x = tf.placeholder(tf.float32, [None, None, None, None, 1])
 
+    SIZE_NUM=64
+
     # Instantiate model.
     analysis_transform = AnalysisTransform(args.num_filters)
     synthesis_transform = SynthesisTransform(args.num_filters)
@@ -231,18 +242,25 @@ def compress(args):
 
     with tf.Session(config=sess_config) as sess:
         # Manage input and output directories
+        pc_names = glob.glob(args.input_file)
         in_file = args.input_file
-        if not in_file.endswith('.ply'):
-            raise ValueError("Input must be a PLY file (.ply extension).")
+        # if not in_file.endswith('.npy'):
+        #     raise ValueError("Input must be a NPY file (.npy extension).")
 
         pc_filename = os.path.splitext(os.path.basename(in_file))[0]
-        stream_dir = os.path.join("..", "results", os.path.split(os.path.split(args.checkpoint_dir)[0])[1], pc_filename)
+        pc_filenames = Path(in_file).parents
+        stream_dir = os.path.join(".", "results", os.path.split(os.path.split(args.checkpoint_dir)[0])[1], pc_filename)
         os.makedirs(stream_dir, exist_ok=True)
 
         # Load input PC, get list of coordinates
-        in_points = pc2vox.load_pc(in_file)
+        # in_points = pc2vox.load_pc(in_file)
         # Divide PC into blocks of the desired size. Get list of relative coordinates for points in each block
-        blocks, blk_map = pc2vox.pc2blocks(in_points, args.blk_size)
+        # blocks, blk_map = pc2vox.pc2blocks(in_points, args.blk_size)
+
+        blocks = []
+        for i in range(SIZE_NUM):
+            blocks.append(np.load(Path.joinpath(Path(pc_names[0]), f"block_{i:04d}.npy")))
+
 
         # Get the different models directory names
         model_names = glob.glob(args.checkpoint_dir)
@@ -288,7 +306,7 @@ def compress(args):
         final_focal_loss = [total_focal_losses[i][best_model[i]] for i in range(len(blocks))]
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), "wb") as f:
-            pickle.dump([args.blk_size, best_model, blk_map, final_bitstream], f)
+            pickle.dump([args.blk_size, best_model, final_bitstream], f)
         
         with open(os.path.join(stream_dir, pc_filename + "_statistics.txt"), "w") as f:
             f.write(f"bpv: {bpv}\n")
@@ -348,7 +366,7 @@ def decompress(args):
                 shutil.copyfileobj(f_in, f_out)
 
         with open(stream_filename + ".dec.pkl", "rb") as f:
-            blk_size, best_model, blk_map, final_bitstream = pickle.load(f)
+            blk_size, best_model, final_bitstream = pickle.load(f)
 
         try:
             # Initialize the reconstructed PC (empty)
@@ -368,13 +386,18 @@ def decompress(args):
                         # Decode block
                         x_rec = sess.run(x_hat, feed_dict=dict(zip(tensors + [x_shape], arrays + [[blk_size, blk_size, blk_size]])))
                         # Convert back to point coordinates
-                        points = pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5))
-                        points = points + (blk_size * blk_map[i])
+                        vox_data = np.greater_equal(np.squeeze(x_rec), 0.5)
+                        # points = pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5))
+                        # points = points + (blk_size * blk_map[i])
                         # Merge block points in the fully reconstructed PC
-                        pts_geom = np.concatenate((pts_geom, points))
+                        # pts_geom = np.concatenate((pts_geom, points))
 
             # Write reconstructed PC to file
-            pc2vox.save_pc(pts_geom, stream_filename + ".dec.ply")
+            # pc2vox.save_pc(pts_geom, stream_filename + ".dec.ply")
+            block_save_path = Path.joinpath(Path(stream_filename).parent, "blocks")
+            Path.mkdir(block_save_path, parents=True, exist_ok=True)
+            for j in range(64):
+                np.save(Path.joinpath(block_save_path, f"block_{j:04d}.npy"), vox_data[j])
             os.remove(stream_filename + ".dec.pkl")
 
         except tf.errors.OutOfRangeError:

@@ -20,16 +20,16 @@ def convert(args):
     # Ignore blocks with fewer than 500 points
     total_blocks = [blk for blk in blocks if len(blk) >= 500]
 
-    vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
-    # Iterate all blocks
-    for j in range(len(total_blocks)):
-        # Convert coordinates to 3D block
-        vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
+    # vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
+    # # Iterate all blocks
+    # for j in range(len(total_blocks)):
+    #     # Convert coordinates to 3D block
+    #     vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
     
-    block_save_path = Path.joinpath(pc_name.parents[1], "blocks", pc_name.stem)
+    block_save_path = Path.joinpath(pc_name.parents[1], "testing-blocks", pc_name.stem)
     Path.mkdir(block_save_path, parents=True, exist_ok=True)
     for j in range(64):
-        np.save(Path.joinpath(block_save_path, f"block_{j:04d}.npy"), vox_data[j, :, :, :, :])
+        np.save(Path.joinpath(block_save_path, f"block_{j:04d}.npy"), total_blocks[j])
     
 
 
