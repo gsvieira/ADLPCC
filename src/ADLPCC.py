@@ -125,7 +125,7 @@ def train(args):
     y = analysis_transform(x)
     z = hyper_analysis_transform(abs(y))
     z_tilde, z_likelihoods = entropy_bottleneck(z, training=True)
-    z_tilde, z_hat_likelihoods = entropy_bottleneck(z, training=False)
+    z_hat, z_hat_likelihoods = entropy_bottleneck(z, training=False)
     sigma = hyper_synthesis_transform(z_tilde)
     scale_table = np.exp(np.linspace(np.log(SCALES_MIN), np.log(SCALES_MAX), SCALES_LEVELS))
     conditional_bottleneck = tfc.GaussianConditional(sigma, scale_table)
@@ -135,8 +135,6 @@ def train(args):
     x_tilde = synthesis_transform(y_tilde)
     x_hat = synthesis_transform(y_hat)
 
-    # Compute distortion: Focal Loss
-    train_focal = loss_functions.focal_loss(x, x_tilde, gamma=args.fl_gamma, alpha=args.fl_alpha)
     
 
     # Compute rate: Total number of bits divided by number of points
@@ -147,18 +145,20 @@ def train(args):
     bpv_z_hat = (tf.reduce_sum(tf.log(z_hat_likelihoods))) / (-np.log(2) * num_input_points)
     train_bpv = bpv_y + bpv_z
     quantized_bpv = bpv_y_hat + bpv_z_hat
-    norm_bpv_diff = (bpv_y + bpv_z - args.target_rate) / args.target_rate
-    r_target = norm_bpv_diff ** 2
+
+    bpv_diff = train_bpv - quantized_bpv
     
+    # Compute distortion: Focal Loss
+    train_focal_batch = loss_functions.focal_loss(x, x_tilde, gamma=args.fl_gamma, alpha=args.fl_alpha)
+
+    # Compute avarage of focal loss
+    train_focal = train_focal_batch / args.batchsize
     
     norm_distortion_diff = (train_focal - args.target_distortion) / args.target_distortion
-    d_target = norm_distortion_diff **2
+    d_target = norm_distortion_diff ** 2
     
-    # r_target
-    # Compute the rate-distortion cost
-    # train_loss = train_focal + (args.beta * r_target)
-    
-    train_loss = train_bpv + d_target * args.beta 
+    # Compute the rate-distortion cost    
+    train_loss = train_bpv + d_target * args.beta
 
     # Minimize loss and auxiliary loss, and execute update op
     step = tf.train.create_global_step()
@@ -176,28 +176,30 @@ def train(args):
     count_ratio = rec_count_real / num_input_points
     tf.summary.scalar("1_loss", train_loss)
     tf.summary.scalar("2_focal", train_focal)
-    tf.summary.scalar("3_bpv", train_bpv)
-    tf.summary.scalar("4_quantized_bpv", quantized_bpv)
-    tf.summary.scalar("5_count_ratio", tf.reduce_mean(count_ratio))
-    tf.summary.scalar("6_count_in_real", tf.reduce_mean(num_input_points))
-    tf.summary.scalar("7_count_out_real", tf.reduce_mean(rec_count_real))
+    tf.summary.scalar("3_loss_target", d_target)
+    tf.summary.scalar("4_bpv", train_bpv)
+    tf.summary.scalar("5_quantized_bpv", quantized_bpv)
+    tf.summary.scalar("6_bpv_diff_train_quantized", bpv_diff)
+    tf.summary.scalar("7_count_ratio", tf.reduce_mean(count_ratio))
+    tf.summary.scalar("8_count_in_real", tf.reduce_mean(num_input_points))
+    tf.summary.scalar("9_count_out_real", tf.reduce_mean(rec_count_real))
     tf.summary.histogram("x_tilde", x_tilde)
     tf.summary.histogram("y_tilde", y_tilde)
     tf.summary.histogram("y", y)
 
     sess_config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.8))
-
-    def init_fn(scaffold, session):
-        session.run(x_data_iterator.initializer, feed_dict={train_data_placeholder: vox_data})
+    class IteratorInitHook(tf.train.SessionRunHook):
+        def after_create_session(self, session, coord):
+            session.run(x_data_iterator.initializer, feed_dict={train_data_placeholder: vox_data})
 
     hooks = [
         tf.train.StopAtStepHook(last_step=args.last_step),
         tf.train.NanTensorHook(train_loss),
+        IteratorInitHook()
     ]
     with tf.train.MonitoredTrainingSession(
             hooks=hooks, checkpoint_dir=args.checkpoint_dir,
             save_checkpoint_secs=3600, save_summaries_steps=1000,
-            scaffold=tf.train.Scaffold(init_fn=init_fn),
             config=sess_config) as sess:
         while not sess.should_stop():
             sess.run(train_op)
@@ -208,7 +210,7 @@ def compress(args):
 
     x = tf.placeholder(tf.float32, [None, None, None, None, 1])
 
-    SIZE_NUM=64
+    SIZE_NUM=8
 
     # Instantiate model.
     analysis_transform = AnalysisTransform(args.num_filters)
@@ -222,23 +224,60 @@ def compress(args):
     y_shape = tf.shape(y)
 
     z = hyper_analysis_transform(abs(y))
-    z_hat, z_likelihoods = entropy_bottleneck(z, training=False)
+    z_tilde, z_tilde_likelihoods = entropy_bottleneck(z, training=True)
+    z_hat, z_hat_likelihoods = entropy_bottleneck(z, training=False)
 
     sigma = hyper_synthesis_transform(z_hat)
+    sigma_tilde = hyper_synthesis_transform(z_tilde)
     sigma = sigma[:, :y_shape[1], :y_shape[2], :y_shape[3], :]
+    sigma_tilde = sigma_tilde[:, :y_shape[1], :y_shape[2], :y_shape[3], :]
     scale_table = np.exp(np.linspace(
         np.log(SCALES_MIN), np.log(SCALES_MAX), SCALES_LEVELS))
 
-    conditional_bottleneck = tfc.GaussianConditional(sigma, scale_table)
+    is_training = tf.placeholder(tf.bool, shape=())
+
+    sigma_dynamic = tf.cond(is_training, lambda: sigma_tilde, lambda: sigma)
+
+    conditional_bottleneck = tfc.GaussianConditional(sigma_dynamic, scale_table)
+
+    y_tilde, y_tilde_likelihoods = conditional_bottleneck(y, training=True)
+    _, y_hat_likelihoods = conditional_bottleneck(y, training=False)
+    
     side_string = entropy_bottleneck.compress(z)
     string = conditional_bottleneck.compress(y)
 
+
     y_hat = conditional_bottleneck.decompress(string)
+
+    x_tilde = synthesis_transform(y_tilde)
     x_hat = synthesis_transform(y_hat)
 
     tensors = [string, side_string]
 
+    #calculate the quatized_bpv
+    num_input_points = tf.reduce_sum(x)
+    bpv_y_tilde = (tf.reduce_sum(tf.log(y_tilde_likelihoods))) / (-np.log(2) * num_input_points)
+    bpv_z_tilde = (tf.reduce_sum(tf.log(z_tilde_likelihoods))) / (-np.log(2) * num_input_points)
+    bpv_y_hat = (tf.reduce_sum(tf.log(y_hat_likelihoods))) / (-np.log(2) * num_input_points)
+    bpv_z_hat = (tf.reduce_sum(tf.log(z_hat_likelihoods))) / (-np.log(2) * num_input_points)
+    train_bpv_tilde = bpv_y_tilde + bpv_z_tilde
+    quantized_bpv_hat = bpv_y_hat + bpv_z_hat
+
+
     sess_config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.8))
+
+    #calculate focal_loss
+    focal_hat = loss_functions.focal_loss(x, x_hat, 2, 0.9)
+    focal_tilde = loss_functions.focal_loss(x, x_tilde, 2, 0.9)
+    norm_distortion_diff = (focal_hat - args.target_distortion) / args.target_distortion
+    norm_distortion_diff_tilde = (focal_tilde - args.target_distortion) / args.target_distortion
+    d_target_hat = norm_distortion_diff ** 2
+    d_target_tilde = norm_distortion_diff_tilde ** 2
+
+
+    loss_quantized_hat = quantized_bpv_hat + d_target_hat * args.beta
+    loss_quantized_tilde = train_bpv_tilde + d_target_tilde * args.beta
+
 
     with tf.Session(config=sess_config) as sess:
         # Manage input and output directories
@@ -248,7 +287,7 @@ def compress(args):
         #     raise ValueError("Input must be a NPY file (.npy extension).")
 
         pc_filename = os.path.splitext(os.path.basename(in_file))[0]
-        pc_filenames = Path(in_file).parents
+        # pc_filenames = Path(in_file).parents
         stream_dir = os.path.join(".", "results", os.path.split(os.path.split(args.checkpoint_dir)[0])[1], pc_filename)
         os.makedirs(stream_dir, exist_ok=True)
 
@@ -267,7 +306,14 @@ def compress(args):
 
         total_cost = np.zeros([len(blocks), len(model_names)], np.float)
         total_bitstream = []
-        total_focal_losses = np.zeros([len(blocks), len(model_names)], np.float)
+        total_d_target_hat = np.zeros([len(blocks), len(model_names)], np.float)
+        total_bpv_hat = np.zeros([len(blocks), len(model_names)], np.float)
+        total_focal_losses_hat = np.zeros([len(blocks), len(model_names)], np.float)
+        total_loss_quantized_hat = np.zeros([len(blocks), len(model_names)], np.float)
+        total_d_target_tilde = np.zeros([len(blocks), len(model_names)], np.float)
+        total_bpv_tilde = np.zeros([len(blocks), len(model_names)], np.float)
+        total_focal_losses_tilde = np.zeros([len(blocks), len(model_names)], np.float)
+        total_loss_quantized_tilde = np.zeros([len(blocks), len(model_names)], np.float)
 
         # Iterate each model
         for j in range(len(model_names)):
@@ -282,18 +328,26 @@ def compress(args):
                     temp_blk = blocks[i]
                     num_blk_points = temp_blk.shape[0]
                     # Encode and decode block
-                    arrays, x_rec = sess.run([tensors, x_hat], feed_dict={x: pc2vox.point2vox(temp_blk, args.blk_size)})
+                    arrays, x_rec, d_target_hat_step, quantized_bpv_hat_step, loss_quantized_hat_step, focal_loss_hat = sess.run([tensors, x_hat, d_target_hat, quantized_bpv_hat, loss_quantized_hat, focal_hat], feed_dict={x: pc2vox.point2vox(temp_blk, args.blk_size), is_training: False})
+                    d_target_tilde_step, train_bpv_tilde_step, loss_quantized_tilde_step, focal_loss_tilde = sess.run([d_target_tilde, train_bpv_tilde, loss_quantized_tilde, focal_tilde], feed_dict={x: pc2vox.point2vox(temp_blk, args.blk_size), is_training: True})
                     # Compute block bitrate
                     packed = tfc.PackedTensors()
                     packed.pack(tensors, arrays)
                     bpv = len(packed.string) * 8 / num_blk_points
                     # Compute block RD cost
                     mse = loss_functions.point2point(temp_blk, pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5)))
-                    focal = sess.run(loss_functions.focal_loss(pc2vox.point2vox(temp_blk, args.blk_size), x_rec, 2, 0.9))
+
                     total_cost[i, j] = mse + (args.beta * bpv)
+                    total_d_target_hat[i, j] = d_target_hat_step
+                    total_bpv_hat[i, j] = quantized_bpv_hat_step
+                    total_loss_quantized_hat[i, j] = loss_quantized_hat_step
+                    total_focal_losses_hat[i, j] = focal_loss_hat
+                    total_d_target_tilde[i, j] = d_target_tilde_step
+                    total_bpv_tilde[i, j] = train_bpv_tilde_step
+                    total_loss_quantized_tilde[i, j] = loss_quantized_tilde_step
+                    total_focal_losses_tilde[i, j] = focal_loss_tilde
 
                     bitstream.extend([packed.string])
-                    total_focal_losses[i, j] = focal
 
                 total_bitstream.extend([bitstream])
 
@@ -303,14 +357,28 @@ def compress(args):
         best_model = np.argmin(total_cost, axis=1)
 
         final_bitstream = [total_bitstream[best_model[i]][i] for i in range(len(blocks))]
-        final_focal_loss = [total_focal_losses[i][best_model[i]] for i in range(len(blocks))]
+        final_d_target_hat = [total_d_target_hat[i][best_model[i]] for i in range(len(blocks))]
+        final_bpv_hat = [total_bpv_hat[i][best_model[i]] for i in range(len(blocks))]
+        final_loss_hat = [total_loss_quantized_hat[i][best_model[i]] for i in range(len(blocks))]
+        final_focal_loss_hat = [total_focal_losses_hat[i][best_model[i]] for i in range(len(blocks))]
+        final_d_target_tilde = [total_d_target_tilde[i][best_model[i]] for i in range(len(blocks))]
+        final_bpv_tilde = [total_bpv_tilde[i][best_model[i]] for i in range(len(blocks))]
+        final_loss_tilde = [total_loss_quantized_tilde[i][best_model[i]] for i in range(len(blocks))]
+        final_focal_loss_tilde = [total_focal_losses_tilde[i][best_model[i]] for i in range(len(blocks))]
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), "wb") as f:
             pickle.dump([args.blk_size, best_model, final_bitstream], f)
         
         with open(os.path.join(stream_dir, pc_filename + "_statistics.txt"), "w") as f:
             f.write(f"bpv: {bpv}\n")
-            f.write("Final Focal Losses: " + ', '.join(map(str, final_focal_loss)) + '\n')
+            f.write("Final Focal Losses Hat: " + ', '.join(map(str, final_focal_loss_hat)) + '\n')
+            f.write("Final d_targets Hat: " + ', '.join(map(str, final_d_target_hat)) + '\n')
+            f.write("Final BPVs Hat: " + ', '.join(map(str, final_bpv_hat)) + '\n')
+            f.write("Final Quantized Losses Hat: " + ', '.join(map(str, final_loss_hat)) + '\n')
+            f.write("Final Focal Losses Tilde: " + ', '.join(map(str, final_focal_loss_tilde)) + '\n')
+            f.write("Final d_targets Tilde: " + ', '.join(map(str, final_d_target_tilde)) + '\n')
+            f.write("Final BPVs Tilde: " + ', '.join(map(str, final_bpv_tilde)) + '\n')
+            f.write("Final Quantized Losses Tilde: " + ', '.join(map(str, final_loss_tilde)) + '\n')
             # f.write(f"total_cost: {total_cost}")
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), 'rb') as f_in:
@@ -453,7 +521,7 @@ def parse_args(argv):
         help="Target rate trying to achieve"
     )
     train_cmd.add_argument(
-        "--target_distortion", type=float, default=1.0,
+        "--target_distortion", type=float, default=500,
         help="Target distortion trying to achieve"
     )
 
@@ -476,6 +544,10 @@ def parse_args(argv):
     compress_cmd.add_argument(
         "--beta", type=float, default=0, dest="beta",
         help="Beta for RD trade-off when selecting best DL coding model.")
+    compress_cmd.add_argument(
+        "--target_distortion", type=float, default=500,
+        help="Target distortion trying to achieve"
+    )
 
     # 'decompress' subcommand
     decompress_cmd = subparsers.add_parser(
