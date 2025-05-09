@@ -1,68 +1,83 @@
 from pathlib import Path
 import numpy as np
 
-betas = [3000]
+betas = [500]
 Experiment = 7
-basepath = f"/workspaces/ADLPCC/Experiments/Experiment_7/training_PC/pre_processed"
+basepath = f"/workspaces/ADLPCC/results/0.9/Longdress"
+
+
+def process_single_value(arr, name, cloud_names):
+    np_arr = np.array(arr, float)
+    np_list = np_arr.tolist()
+    string = ""
+    for i in range(len(cloud_names)):
+        string += f"{cloudNames[i]} {name}: {np_list[i]}\n"
+    
+    string += f"\n{name}\n"
+    string += f"mean: {np_arr.mean()}\n"
+    string += f"var: {np_arr.var()}\n"
+    string += f"min: {np_arr.min()}\n"
+    string += f"max: {np_arr.max()}\n"
+
+    return string
+
+
+
+
+def process_multiple_value(arr, name, cloud_names):
+    string = ""
+    for i in range(len(arr)):
+        np_arr = np.fromstring(arr[i], sep=', ')
+        
+        string += f"\n{name} {cloud_names[i]}\n"
+        string += f"mean: {np_arr.mean()}\n"
+        string += f"var: {np_arr.var()}\n"
+        string += f"min: {np_arr.min()}\n"
+        string += f"max: {np_arr.max()}\n"
+
+    return string
 
 for lamb in betas:
-    dirpath = Path(basepath).joinpath(f"beta_{lamb}")
+    dirpath = Path(basepath)#.joinpath(f"beta_{lamb}")
     files = sorted(dirpath.glob("*.txt"))
+
+    
+    final_file = Path(basepath).parent
+    final_file = final_file.joinpath("results_processed", f"beta_{lamb}")
+        
+    if(final_file.is_dir() == False): #test if needed
+        final_file.mkdir(parents=True, exist_ok=True)
+
+
     for file in files:
-        bpv = []
-        psnr = []
-        focal = []
+        split_lines = []
         cloudNames = []
+        statistics_names = []
+        final_string = ""
         with open(file) as f:
             lines = f.readlines()
             for line in lines: 
-                if "bpv: " in line:
-                    bpv.append(float(line[4:-1]))
-                elif "psnr:" in line:
-                    psnr.append((float(line[5:-1])))
-                elif "Final Focal Losses:" in line:
-                    focal.append(line[20:-1])
-                elif line:
+                if line.find(':') == -1:
                     cloudNames.append(line[:-1])
-        # print(bpv)
-        npbpv = np.array(bpv)
-        nppsnr = np.array(psnr)
-        npfocal = np.fromstring(focal[0], sep=', ')
-        # print(npbpv.mean())
-        # print(npbpv.var())
-        final_file = Path(basepath).parent
-        final_file = final_file.joinpath("results_processed", f"beta_{lamb}")
-        
-        if(final_file.is_dir() == False):
-            final_file.mkdir(parents=True, exist_ok=True)
+                else:
+                    line_splitted = line.split(': ')
+                    name = line_splitted[0]
+                    if name in statistics_names:
+                       index = statistics_names.index(name)
+                       split_lines[index].append(line_splitted[1][:-1])
+
+                    else:
+                        statistics_names.append(name)
+                        split_lines.append([line_splitted[1][:-1]])
+
+            for i in range(len(split_lines)):
+                if split_lines[i][0].find(',') == -1:
+                    final_string += process_single_value(split_lines[i], statistics_names[i], cloudNames)
+                else:
+                    final_string += process_multiple_value(split_lines[i], statistics_names[i], cloudNames)
+
+        # final_file = Path("/workspaces/ADLPCC/")
         final_file = final_file.joinpath(file.name)
 
-        bpvlist = npbpv.tolist()
-        psnrlist = nppsnr.tolist()
         with open(final_file, "w") as f:
-            for i in range(len(cloudNames)):
-                f.write(f"{cloudNames[i]}\n")
-                f.write(f"BPV: {bpvlist[i]}\n")
-                if psnrlist:
-                    f.write(F"PSNR: {psnrlist[i]}\n")
-            
-            f.write("\nBPV\n")
-            f.write(f"mean: {npbpv.mean()}\n")
-            f.write(f"var: {npbpv.var()}\n")
-            f.write(f"min: {npbpv.min()}\n")
-            f.write(f"max: {npbpv.max()}\n")
-            if psnrlist:
-                f.write("\nPSNR\n")
-                f.write(f"mean: {nppsnr.mean()}\n")
-                f.write(f"var: {nppsnr.var()}\n")
-                f.write(f"min: {nppsnr.min()}\n")
-                f.write(f"max: {nppsnr.max()}\n")
-            i = 0
-            for fline in focal:
-                npfocal = np.fromstring(fline, sep=', ')
-                f.write(f"\nFocal {cloudNames[i]}\n")
-                f.write(f"mean: {npfocal.mean()}\n")
-                f.write(f"var: {npfocal.var()}\n")
-                f.write(f"min: {npfocal.min()}\n")
-                f.write(f"max: {npfocal.max()}\n")
-                i = i+1
+            f.write(final_string)
