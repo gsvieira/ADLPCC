@@ -3,7 +3,7 @@ import numpy as np
 
 betas = [500]
 Experiment = 7
-basepath = f"/workspaces/ADLPCC/results/0.9/Longdress"
+basepath = f"/workspaces/ADLPCC/results/Experiments/Experiment_{Experiment}"
 
 
 def process_single_value(arr, name, cloud_names):
@@ -13,11 +13,12 @@ def process_single_value(arr, name, cloud_names):
     for i in range(len(cloud_names)):
         string += f"{cloudNames[i]} {name}: {np_list[i]}\n"
     
-    string += f"\n{name}\n"
-    string += f"mean: {np_arr.mean()}\n"
-    string += f"var: {np_arr.var()}\n"
-    string += f"min: {np_arr.min()}\n"
-    string += f"max: {np_arr.max()}\n"
+    if len(cloudNames) !=1:
+        string += f"\n{name}\n"
+        string += f"mean: {np_arr.mean()}\n"
+        string += f"var: {np_arr.var()}\n"
+        string += f"min: {np_arr.min()}\n"
+        string += f"max: {np_arr.max()}\n"
 
     return string
 
@@ -38,15 +39,14 @@ def process_multiple_value(arr, name, cloud_names):
     return string
 
 for lamb in betas:
-    dirpath = Path(basepath)#.joinpath(f"beta_{lamb}")
+    dirpath = Path(basepath).joinpath(f"beta_{lamb}")
     files = sorted(dirpath.glob("*.txt"))
 
     
-    final_file = Path(basepath).parent
-    final_file = final_file.joinpath("results_processed", f"beta_{lamb}")
+    dirpath = Path(dirpath).joinpath("results_processed")
         
-    if(final_file.is_dir() == False): #test if needed
-        final_file.mkdir(parents=True, exist_ok=True)
+    if(dirpath.is_dir() == False): #test if needed
+        dirpath.mkdir(parents=True, exist_ok=True)
 
 
     for file in files:
@@ -76,8 +76,7 @@ for lamb in betas:
                 else:
                     final_string += process_multiple_value(split_lines[i], statistics_names[i], cloudNames)
 
-        # final_file = Path("/workspaces/ADLPCC/")
-        final_file = final_file.joinpath(file.name)
+        final_file = dirpath.joinpath(file.name)
 
         with open(final_file, "w") as f:
             f.write(final_string)

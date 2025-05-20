@@ -210,7 +210,7 @@ def compress(args):
 
     x = tf.placeholder(tf.float32, [None, None, None, None, 1])
 
-    SIZE_NUM=8
+    SIZE_NUM=64
 
     # Instantiate model.
     analysis_transform = AnalysisTransform(args.num_filters)
@@ -288,7 +288,7 @@ def compress(args):
 
         pc_filename = os.path.splitext(os.path.basename(in_file))[0]
         # pc_filenames = Path(in_file).parents
-        stream_dir = os.path.join(".", "results", os.path.split(os.path.split(args.checkpoint_dir)[0])[1], pc_filename)
+        stream_dir = os.path.join("..", "results", os.path.split(os.path.split(args.checkpoint_dir)[0])[1], pc_filename)
         os.makedirs(stream_dir, exist_ok=True)
 
         # Load input PC, get list of coordinates
@@ -314,6 +314,7 @@ def compress(args):
         total_bpv_tilde = np.zeros([len(blocks), len(model_names)], np.float)
         total_focal_losses_tilde = np.zeros([len(blocks), len(model_names)], np.float)
         total_loss_quantized_tilde = np.zeros([len(blocks), len(model_names)], np.float)
+        total_bpv = np.zeros([len(blocks), len(model_names)], np.float)
 
         # Iterate each model
         for j in range(len(model_names)):
@@ -324,9 +325,11 @@ def compress(args):
 
             try:
                 # Iterate all blocks
+                total_num_points = 0
                 for i in range(len(blocks)):
                     temp_blk = blocks[i]
                     num_blk_points = temp_blk.shape[0]
+                    total_num_points += num_blk_points
                     # Encode and decode block
                     arrays, x_rec, d_target_hat_step, quantized_bpv_hat_step, loss_quantized_hat_step, focal_loss_hat = sess.run([tensors, x_hat, d_target_hat, quantized_bpv_hat, loss_quantized_hat, focal_hat], feed_dict={x: pc2vox.point2vox(temp_blk, args.blk_size), is_training: False})
                     d_target_tilde_step, train_bpv_tilde_step, loss_quantized_tilde_step, focal_loss_tilde = sess.run([d_target_tilde, train_bpv_tilde, loss_quantized_tilde, focal_tilde], feed_dict={x: pc2vox.point2vox(temp_blk, args.blk_size), is_training: True})
@@ -346,9 +349,14 @@ def compress(args):
                     total_bpv_tilde[i, j] = train_bpv_tilde_step
                     total_loss_quantized_tilde[i, j] = loss_quantized_tilde_step
                     total_focal_losses_tilde[i, j] = focal_loss_tilde
+                    total_bpv[i, j] = bpv
 
                     bitstream.extend([packed.string])
 
+                bitstream_bitsize = 0
+                for k in range(len(bitstream)):
+                    bitstream_bitsize += len(bitstream[k])
+                final_bpv = bitstream_bitsize * 8 / total_num_points
                 total_bitstream.extend([bitstream])
 
             except tf.errors.OutOfRangeError:
@@ -365,12 +373,14 @@ def compress(args):
         final_bpv_tilde = [total_bpv_tilde[i][best_model[i]] for i in range(len(blocks))]
         final_loss_tilde = [total_loss_quantized_tilde[i][best_model[i]] for i in range(len(blocks))]
         final_focal_loss_tilde = [total_focal_losses_tilde[i][best_model[i]] for i in range(len(blocks))]
+        final_total_bpv = [total_bpv[i][best_model[i]] for i in range(len(blocks))]
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), "wb") as f:
             pickle.dump([args.blk_size, best_model, final_bitstream], f)
         
         with open(os.path.join(stream_dir, pc_filename + "_statistics.txt"), "w") as f:
-            f.write(f"bpv: {bpv}\n")
+            f.write(f"bpv: {final_bpv}\n")
+            f.write("Final Blocks bpv: " + ', '.join(map(str, final_total_bpv)) + '\n')
             f.write("Final Focal Losses Hat: " + ', '.join(map(str, final_focal_loss_hat)) + '\n')
             f.write("Final d_targets Hat: " + ', '.join(map(str, final_d_target_hat)) + '\n')
             f.write("Final BPVs Hat: " + ', '.join(map(str, final_bpv_hat)) + '\n')
