@@ -10,6 +10,7 @@ from pathlib import Path
 import pc2vox
 
 def convert(args):
+    NUM_SIZE = 128
     pc_name = Path(args.train_data)
 
     
@@ -18,20 +19,24 @@ def convert(args):
     # Divide PC into blocks of the desired size. Get list of relative coordinates for points in each block
     blocks, _ = pc2vox.pc2blocks(in_points, 64)
     # Ignore blocks with fewer than 500 points
-    total_blocks = [blk for blk in blocks if len(blk) >= 500]
-
-    # vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
-    # # Iterate all blocks
-    # for j in range(len(total_blocks)):
-    #     # Convert coordinates to 3D block
-    #     vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
+    # total_blocks = [blk for blk in blocks if len(blk) <= 2000]
+    total_blocks = blocks
     
-    block_save_path = Path.joinpath(pc_name.parents[1], "testing-blocks", pc_name.stem)
+    block_save_path = Path.joinpath(pc_name.parents[1], "testing-blocks-full", pc_name.stem)
     Path.mkdir(block_save_path, parents=True, exist_ok=True)
-    for j in range(64):
+    for j in range(NUM_SIZE):
         np.save(Path.joinpath(block_save_path, f"block_{j:04d}.npy"), total_blocks[j])
-    
 
+    vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
+    # Iterate all blocks
+    for j in range(len(total_blocks)):
+        # Convert coordinates to 3D block
+        vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
+    
+    block_save_path = Path.joinpath(pc_name.parents[1], "blocks-full", pc_name.stem)
+    Path.mkdir(block_save_path, parents=True, exist_ok=True)
+    for j in range(NUM_SIZE):
+        np.save(Path.joinpath(block_save_path, f"block_{j:04d}.npy"), vox_data[j, :, :, :, :])
 
 
 def parse_args(argv):

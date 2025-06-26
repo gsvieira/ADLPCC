@@ -4,8 +4,8 @@ import plotly.express as px
 import pandas as pd
 
 
-betas = [500,1000,1500,2000,2500,3000]
-Experiment = 11
+betas = [300]
+Experiment = 15
 basepath = f"/workspaces/ADLPCC/results/Experiments/Experiment_{Experiment}"
 
 results = []
@@ -39,6 +39,8 @@ def process_values(df: pd.DataFrame, file: Path, beta: int, col_focal:str = "Fin
         bpv = group[col_bpv]
         bpv_90 = bpv[mask_90]
 
+        psnr = group["psnr"].iloc[0]
+
         bpv_outliers = bpv[~mask_90]
         bpv_5 = bpv[focal < focal_q5]
         bpv_95 = bpv[focal > focal_q95]
@@ -54,6 +56,7 @@ def process_values(df: pd.DataFrame, file: Path, beta: int, col_focal:str = "Fin
         results.append({
             "cloud": cloud,
             "beta": beta,
+            "psnr": psnr,
             "d_target": int(d_target),
             "mean_focal_loss": focal_mean,
             "variation": variation,
@@ -69,8 +72,8 @@ def process_values(df: pd.DataFrame, file: Path, beta: int, col_focal:str = "Fin
 
 
 for lamb in betas:
-    # step = 400
-    dirpath = Path(basepath).joinpath(f"beta_{lamb}")
+    step = 300000
+    dirpath = Path(basepath).joinpath(f"steps_{step}/beta_{lamb}")
     files = sorted(dirpath.glob("*.txt"))
     d_targets = []
 
@@ -132,6 +135,42 @@ for lamb in betas:
 
         process_values(df, file, lamb)
 
+        fig = px.box(df, "cloud", "Final Blocks bpv", points=False, color='cloud')
+        fig.update_yaxes(type='log')
+        fig.update_layout(
+            yaxis_title="Cloud",
+            xaxis_title="BPV per Blocks",
+            title=f"BPV per Blocks_beta_{lamb}_target_{target}_step{step}"
+        )
+        fig.write_image(f"{basepath}/steps_{step}/beta_{lamb}/results_processed/bpv_target_{target}_num_bpv.png")
+        fig.show()
+
+        fig = px.box(df, "cloud", "Final Focal Losses Hat", points='outliers', color='cloud')
+        fig.update_layout(
+            xaxis_title="Focal Loss",
+            yaxis_title="Cloud",
+            title=f"Focal Loss_beta_{lamb}_target_{target}_step{step}"
+        )
+        fig.update_yaxes(type='log')
+        fig.add_hline(target, line_dash="dot", label=dict(text="d_target",
+                                                        textposition="end",
+                                                        font=dict(size=20, color="black"),
+                                                        yanchor="top"),
+                                                        )
+
+        fig.write_image(f"{basepath}/steps_{step}/beta_{lamb}/results_processed/focal_target_{target}_num_bpv.png")
+        fig.show()
+
+        df1 = df.groupby('cloud', as_index=False).mean()
+        fig = px.bar(df1, "cloud", "psnr", color='cloud')
+        fig.update_layout(
+            xaxis_title="Cloud",
+            yaxis_title="PSNR-D1",
+            title=f"PSNR_beta_{lamb}_target_{target}_step{step}"
+        )
+        fig.write_image(f"{basepath}/steps_{step}/beta_{lamb}/results_processed/psnr_target_{target}_num_bpv.png")
+        fig.show()
+
         for i in range(len(cloudNames)):
 
             df1 = df[df['cloud'] == 'Longdress']
@@ -146,7 +185,7 @@ for lamb in betas:
                 yaxis_title="BPV",
                 title=f"Scatter Graph {cloudNames[i]}_{lamb}_target_{target}"
             )
-            fig.write_image(f"{basepath}/beta_{lamb}/{cloudNames[i]}_target_{target}_num_bpv.png")
+            fig.write_image(f"{basepath}/steps_{step}/beta_{lamb}/{cloudNames[i]}_target_{target}_num_bpv.png")
             # fig.show()
 
             fig1 = px.scatter(df1,'Final points per voxel', 'Final Focal Losses Hat', color='tipo')
@@ -155,11 +194,12 @@ for lamb in betas:
                 # yaxis_title="Focal Loss",
                 title=f"Scatter Graph {cloudNames[i]}_{lamb}_target_{target}"
             )
-            fig1.write_image(f"{basepath}/beta_{lamb}/{cloudNames[i]}_target_{target}_num_loss.png")
+            fig1.write_image(f"{basepath}/steps_{step}/beta_{lamb}/{cloudNames[i]}_target_{target}_num_loss.png")
             # fig1.show()
         final_file = dirpath.joinpath(file.name)
 
         with open(final_file, "w") as f:
             f.write(final_string)
-    results_df = pd.DataFrame(results)
-    results_df.to_csv(Path(basepath).joinpath("statistics.csv"), index=False, float_format="%.4f")
+results_df = pd.DataFrame(results)
+results_df.sort_values(by=["d_target","beta"], ascending=[True, True], inplace=True)
+results_df.to_csv(Path(basepath).joinpath(f"statistics_step{step}.csv"), index=False, float_format="%.2f")

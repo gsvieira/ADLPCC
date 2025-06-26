@@ -38,10 +38,11 @@ def knnsearch(va: np.ndarray, vb: np.ndarray) -> np.ndarray:
     '''
     min_distances = []
     kdtree = KDTree(va)
-    for pb in vb:
-        distance, _ = kdtree.query(pb, k=1, p=2)
-        min_distances.append(distance)
-    return np.asarray(min_distances)
+    distances, _ = kdtree.query(vb, k=1, p=2)
+    # for pb in vb:
+    #     distance, _ = kdtree.query(pb, k=1, p=2)
+    #     min_distances.append(distance)
+    return distances
 
 
 def psnr(input_pc: np.ndarray, target_pc: np.ndarray) -> float:
@@ -59,7 +60,7 @@ def psnr(input_pc: np.ndarray, target_pc: np.ndarray) -> float:
     References:
         https://ieeexplore.ieee.org/abstract/document/9191233
     '''
-    setrecursionlimit(1500)
+    # setrecursionlimit(1500)
     distances_A = knnsearch(input_pc, target_pc)
     distances_B = knnsearch(target_pc, input_pc)
     p2point_A = np.sum(distances_A**2) / len(target_pc)

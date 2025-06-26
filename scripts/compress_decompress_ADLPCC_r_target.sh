@@ -1,23 +1,23 @@
-clouds=(Arco_Valentino Facade_00009 Frog Loot Red_and_Black Shiva)
-betas=(500 1000 1500 2000)
-alphas=(9)
-experiment=7
+clouds=(House Klimt Longdress Queen)
+betas=(300)
+alpha=9
+experiment=15
 basedir=/workspaces/ADLPCC
-d_targets=(1000 2000 3000)
-experiment_steps=50k
+d_targets=(750)
+experiment_steps=(100000 200000 300000)
 
 for d_target in "${d_targets[@]}"; do
     for beta in "${betas[@]}"; do
         for cloud in "${clouds[@]}"; do 
-            for alpha in "${alphas[@]}"; do 
-                python ${basedir}/src/ADLPCC.py compress "${basedir}/MPEG_Down/Testing/${cloud}.ply" "${basedir}/Training_100k/Experiment_${experiment}/${beta}/0.${alpha}/d_target${d_target}/"
+            for experiment_step in "${experiment_steps[@]}"; do 
+                # python ${basedir}/src/ADLPCC.py compress "${basedir}/MPEG_Down/Testing/${cloud}.ply" "/workspaces/ADLPCC/Training/Experiment_15/steps_${experiment_step}/${beta}/0.9/d_target${d_target}/" --beta "${beta}" --target_distortion "${d_target}"
 
-                python ${basedir}/src/ADLPCC.py decompress "${basedir}/results/d_target${d_target}/${cloud}/${cloud}.pkl.gz" "${basedir}/Training_100k/Experiment_${experiment}/${beta}/0.${alpha}/d_target${d_target}/"
+                # python ${basedir}/src/ADLPCC.py decompress "${basedir}/results/d_target${d_target}/${cloud}/${cloud}.pkl.gz" "/workspaces/ADLPCC/Training/Experiment_15/steps_${experiment_step}/${beta}/0.9/d_target${d_target}/"
 
-                mkdir -p ${basedir}/results/${beta}/0.${alpha}/${cloud}/d_target${d_target}/
-                mv ${basedir}/results/d_target${d_target}/${cloud}/* ${basedir}/results/${beta}/0.${alpha}/${cloud}/d_target${d_target}/
+                # mkdir -p ${basedir}/results/steps_${experiment_step}/${beta}/0.${alpha}/${cloud}/d_target${d_target}/
+                # mv ${basedir}/results/d_target${d_target}/${cloud}/* ${basedir}/results/steps_${experiment_step}/${beta}/0.${alpha}/${cloud}/d_target${d_target}/
 
-                python ${basedir}/scripts/psnr.py --input "${basedir}/MPEG_Down/Testing/${cloud}.ply" --target "${basedir}/results/${beta}/0.${alpha}/${cloud}/d_target${d_target}/${cloud}.pkl.gz.dec.ply" --result "${basedir}/results/${beta}/0.${alpha}/${cloud}/d_target${d_target}/"
+                python ${basedir}/scripts/psnr.py --input "${basedir}/MPEG_Down/Testing/${cloud}.ply" --target "${basedir}/results/steps_${experiment_step}/${beta}/0.${alpha}/${cloud}/d_target${d_target}/${cloud}.pkl.gz.dec.ply" --result "${basedir}/results/steps_${experiment_step}/${beta}/0.${alpha}/${cloud}/d_target${d_target}/" 
             done
         done
     done
