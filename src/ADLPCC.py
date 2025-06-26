@@ -72,33 +72,33 @@ def train(args):
     # Get the different models directory names
     pc_names = glob.glob(args.train_data)
 
-    SIZE_NUM=64
+    # SIZE_NUM=64
 
-    # total_blocks = []
-    # for i in range(len(pc_names)):
-    #     # Load input PC, get list of coordinates
-    #     in_points = pc2vox.load_pc(pc_names[i])
-    #     # Divide PC into blocks of the desired size. Get list of relative coordinates for points in each block
-    #     blocks, _ = pc2vox.pc2blocks(in_points, 64)
-    #     # Ignore blocks with fewer than 500 points
-    #     total_blocks.extend([blk for blk in blocks if len(blk) >= 500])
+    total_blocks = []
+    for i in range(len(pc_names)):
+        # Load input PC, get list of coordinates
+        in_points = pc2vox.load_pc(pc_names[i])
+        # Divide PC into blocks of the desired size. Get list of relative coordinates for points in each block
+        blocks, _ = pc2vox.pc2blocks(in_points, 64)
+        # Ignore blocks with fewer than 500 points
+        total_blocks.extend([blk for blk in blocks if len(blk) >= 500])
 
-    # vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
-    # # Iterate all blocks
-    # for j in range(len(total_blocks)):
-    #     # Convert coordinates to 3D block
-    #     vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
+    vox_data = np.zeros([len(total_blocks), 64, 64, 64, 1], dtype=np.float32)
+    # Iterate all blocks
+    for j in range(len(total_blocks)):
+        # Convert coordinates to 3D block
+        vox_data[j, :, :, :, :] = pc2vox.point2vox(total_blocks[j], 64)
 
 
-    vox_data = np.zeros([SIZE_NUM, 64, 64, 64, 1], dtype=np.float32)
-    for i in range(SIZE_NUM):
-        vox_data[i, :, :, :, :] = np.load(Path.joinpath(Path(pc_names[0]), f"block_{i:04d}.npy"))
+    # vox_data = np.zeros([SIZE_NUM, 64, 64, 64, 1], dtype=np.float32)
+    # for i in range(SIZE_NUM):
+    #     vox_data[i, :, :, :, :] = np.load(Path.joinpath(Path(pc_names[0]), f"block_{i:04d}.npy"))
 
     # Shuffle all blocks
-    # del in_points
-    # del blocks
-    # del total_blocks
-    # gc.collect()
+    del in_points
+    del blocks
+    del total_blocks
+    gc.collect()
     
     np.random.shuffle(vox_data)
 
@@ -283,119 +283,150 @@ def compress(args):
         # Manage input and output directories
         pc_names = glob.glob(args.input_file)
         in_file = args.input_file
-        # if not in_file.endswith('.npy'):
-        #     raise ValueError("Input must be a NPY file (.npy extension).")
+        if not in_file.endswith('.ply'):
+            raise ValueError("Input must be a PLY file (.ply extension).")
 
         pc_filename = os.path.splitext(os.path.basename(in_file))[0]
-        # pc_filenames = Path(in_file).parents
         stream_dir = os.path.join("..", "results", os.path.split(os.path.split(args.checkpoint_dir)[0])[1], pc_filename)
         os.makedirs(stream_dir, exist_ok=True)
 
         # Load input PC, get list of coordinates
-        # in_points = pc2vox.load_pc(in_file)
+        in_points = pc2vox.load_pc(in_file)
         # Divide PC into blocks of the desired size. Get list of relative coordinates for points in each block
-        # blocks, blk_map = pc2vox.pc2blocks(in_points, args.blk_size)
+        blocks, blk_map = pc2vox.pc2blocks(in_points, args.blk_size)
 
-        blocks = []
-        for i in range(SIZE_NUM):
-            blocks.append(np.load(Path.joinpath(Path(pc_names[0]), f"block_{i:04d}.npy")))
+        # blocks = []
+        # # blocks = np.zeros([SIZE_NUM, 64, 64, 64, 1], dtype=np.float32)
+        # for i in range(SIZE_NUM):
+        #     blocks.append(np.load(Path.joinpath(Path(pc_names[0]), f"block_{i:04d}.npy")))
 
 
         # Get the different models directory names
         model_names = glob.glob(args.checkpoint_dir)
 
-        total_cost = np.zeros([len(blocks), len(model_names)], np.float)
-        total_bitstream = []
-        total_d_target_hat = np.zeros([len(blocks), len(model_names)], np.float)
-        total_bpv_hat = np.zeros([len(blocks), len(model_names)], np.float)
-        total_focal_losses_hat = np.zeros([len(blocks), len(model_names)], np.float)
-        total_loss_quantized_hat = np.zeros([len(blocks), len(model_names)], np.float)
-        total_d_target_tilde = np.zeros([len(blocks), len(model_names)], np.float)
-        total_bpv_tilde = np.zeros([len(blocks), len(model_names)], np.float)
-        total_focal_losses_tilde = np.zeros([len(blocks), len(model_names)], np.float)
-        total_loss_quantized_tilde = np.zeros([len(blocks), len(model_names)], np.float)
-        total_bpv = np.zeros([len(blocks), len(model_names)], np.float)
+        total_cost = np.zeros([len(blocks)], np.float)
+        total_d_target_hat = np.zeros([len(blocks)], np.float)
+        total_bpv_hat = np.zeros([len(blocks)], np.float)
+        total_focal_losses_hat = np.zeros([len(blocks)], np.float)
+        total_loss_quantized_hat = np.zeros([len(blocks)], np.float)
+        total_d_target_tilde = np.zeros([len(blocks)], np.float)
+        total_bpv_tilde = np.zeros([len(blocks)], np.float)
+        total_focal_losses_tilde = np.zeros([len(blocks)], np.float)
+        total_loss_quantized_tilde = np.zeros([len(blocks)], np.float)
+        total_bpv = np.zeros([len(blocks)], np.float)
+        total_num_points = np.zeros([len(blocks)], np.float)
 
         # Iterate each model
-        for j in range(len(model_names)):
-            bitstream = []
-            # Load the latest model checkpoint
-            latest = tf.train.latest_checkpoint(checkpoint_dir=model_names[j])
-            tf.train.Saver().restore(sess, save_path=latest)
+        # for j in range(len(model_names)):
+        bitstream = []
+        # Load the latest model checkpoint
+        latest = tf.train.latest_checkpoint(checkpoint_dir=model_names[0])
+        tf.train.Saver().restore(sess, save_path=latest)
 
-            try:
-                # Iterate all blocks
-                total_num_points = 0
-                for i in range(len(blocks)):
-                    temp_blk = blocks[i]
-                    num_blk_points = temp_blk.shape[0]
-                    total_num_points += num_blk_points
-                    # Encode and decode block
-                    arrays, x_rec, d_target_hat_step, quantized_bpv_hat_step, loss_quantized_hat_step, focal_loss_hat = sess.run([tensors, x_hat, d_target_hat, quantized_bpv_hat, loss_quantized_hat, focal_hat], feed_dict={x: pc2vox.point2vox(temp_blk, args.blk_size), is_training: False})
-                    d_target_tilde_step, train_bpv_tilde_step, loss_quantized_tilde_step, focal_loss_tilde = sess.run([d_target_tilde, train_bpv_tilde, loss_quantized_tilde, focal_tilde], feed_dict={x: pc2vox.point2vox(temp_blk, args.blk_size), is_training: True})
-                    # Compute block bitrate
-                    packed = tfc.PackedTensors()
-                    packed.pack(tensors, arrays)
-                    bpv = len(packed.string) * 8 / num_blk_points
-                    # Compute block RD cost
-                    mse = loss_functions.point2point(temp_blk, pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5)))
+        try:
+            # Iterate all blocks
+            for i in range(len(blocks)):
+                temp_blk = blocks[i]
+                num_blk_points = temp_blk.shape[0]
+                # Encode and decode block
+                x_voxel = pc2vox.point2vox(temp_blk, args.blk_size)
+                # vox_blocks[i, :, :, :, :] = x_voxel
+                arrays, x_rec, d_target_hat_step, quantized_bpv_hat_step, loss_quantized_hat_step, focal_loss_hat = sess.run([tensors, x_hat, d_target_hat, quantized_bpv_hat, loss_quantized_hat, focal_hat], feed_dict={x: x_voxel, is_training: False})
+                d_target_tilde_step, train_bpv_tilde_step, loss_quantized_tilde_step, focal_loss_tilde = sess.run([d_target_tilde, train_bpv_tilde, loss_quantized_tilde, focal_tilde], feed_dict={x: x_voxel, is_training: True})
+                # Compute block bitrate
+                packed = tfc.PackedTensors()
+                packed.pack(tensors, arrays)
+                bpv = len(packed.string) * 8 / num_blk_points
+                # Compute block RD cost
 
-                    total_cost[i, j] = mse + (args.beta * bpv)
-                    total_d_target_hat[i, j] = d_target_hat_step
-                    total_bpv_hat[i, j] = quantized_bpv_hat_step
-                    total_loss_quantized_hat[i, j] = loss_quantized_hat_step
-                    total_focal_losses_hat[i, j] = focal_loss_hat
-                    total_d_target_tilde[i, j] = d_target_tilde_step
-                    total_bpv_tilde[i, j] = train_bpv_tilde_step
-                    total_loss_quantized_tilde[i, j] = loss_quantized_tilde_step
-                    total_focal_losses_tilde[i, j] = focal_loss_tilde
-                    total_bpv[i, j] = bpv
+                total_bpv[i] = bpv
+                total_num_points[i] = num_blk_points
+                total_focal_losses_hat[i] = focal_loss_hat
+                total_d_target_hat[i] = d_target_hat_step
+                total_bpv_hat[i] = quantized_bpv_hat_step
+                total_loss_quantized_hat[i] = loss_quantized_hat_step
+                total_focal_losses_tilde[i] = focal_loss_tilde
+                total_d_target_tilde[i] = d_target_tilde_step
+                total_bpv_tilde[i] = train_bpv_tilde_step
+                total_loss_quantized_tilde[i] = loss_quantized_tilde_step
 
-                    bitstream.extend([packed.string])
+                bitstream.extend([packed.string])
 
-                bitstream_bitsize = 0
-                for k in range(len(bitstream)):
-                    bitstream_bitsize += len(bitstream[k])
-                final_bpv = bitstream_bitsize * 8 / total_num_points
-                total_bitstream.extend([bitstream])
+            bitstream_bitsize = 0
+            points = 0
+            for k in range(len(bitstream)):
+                bitstream_bitsize += len(bitstream[k])
+                points += total_num_points[k]
 
-            except tf.errors.OutOfRangeError:
-                pass
+            final_bpv = bitstream_bitsize * 8 / points
 
-        best_model = np.argmin(total_cost, axis=1)
+            
+            #calculate if is total_cloud
+            
+            # arrays_vox, x_rec_vox, d_target_hat_step_vox, quantized_bpv_hat_step_vox, loss_quantized_hat_step_vox, focal_loss_hat_vox = sess.run([tensors, x_hat, d_target_hat, quantized_bpv_hat, loss_quantized_hat, focal_hat], feed_dict={x: vox_blocks, is_training: False})
+            # d_target_tilde_step_vox, train_bpv_tilde_step_vox, loss_quantized_tilde_step_vox, focal_loss_tilde_vox = sess.run([d_target_tilde, train_bpv_tilde, loss_quantized_tilde, focal_tilde], feed_dict={x: vox_blocks, is_training: True})
 
-        final_bitstream = [total_bitstream[best_model[i]][i] for i in range(len(blocks))]
-        final_d_target_hat = [total_d_target_hat[i][best_model[i]] for i in range(len(blocks))]
-        final_bpv_hat = [total_bpv_hat[i][best_model[i]] for i in range(len(blocks))]
-        final_loss_hat = [total_loss_quantized_hat[i][best_model[i]] for i in range(len(blocks))]
-        final_focal_loss_hat = [total_focal_losses_hat[i][best_model[i]] for i in range(len(blocks))]
-        final_d_target_tilde = [total_d_target_tilde[i][best_model[i]] for i in range(len(blocks))]
-        final_bpv_tilde = [total_bpv_tilde[i][best_model[i]] for i in range(len(blocks))]
-        final_loss_tilde = [total_loss_quantized_tilde[i][best_model[i]] for i in range(len(blocks))]
-        final_focal_loss_tilde = [total_focal_losses_tilde[i][best_model[i]] for i in range(len(blocks))]
-        final_total_bpv = [total_bpv[i][best_model[i]] for i in range(len(blocks))]
+            # packed_vox = tfc.PackedTensors()
+            # packed_vox.pack(tensors, arrays_vox)
+            # bpv_vox = len(packed_vox.string) * 8 / total_num_points
+            # bitstream_vox.extend([packed_vox.string])
+
+            # focal_losses_hat_vox = focal_loss_hat_vox / SIZE_NUM
+            # # d_target_hat_vox = d_target_hat_step_vox / SIZE_NUM
+            # bpv_hat_vox = quantized_bpv_hat_step_vox
+            # # loss_quantized_hat_vox = loss_quantized_hat_step_vox / SIZE_NUM
+            # focal_losses_tilde_vox = focal_loss_tilde_vox / SIZE_NUM
+            # # d_target_tilde_vox = d_target_tilde_step_vox / SIZE_NUM
+            # bpv_tilde_vox = train_bpv_tilde_step_vox
+            # # loss_quantized_tilde_vox = loss_quantized_tilde_step_vox / SIZE_NUM
+
+            # norm_distortion_diff_vox = (focal_losses_hat_vox - args.target_distortion) / args.target_distortion
+            # norm_distortion_diff_tilde_vox = (focal_losses_tilde_vox - args.target_distortion) / args.target_distortion
+            # d_target_hat_vox = norm_distortion_diff_vox ** 2
+            # d_target_tilde_vox = norm_distortion_diff_tilde_vox ** 2
+
+            # loss_quantized_hat_vox = bpv_hat_vox + d_target_hat_vox * args.beta
+            # loss_quantized_tilde_vox = bpv_tilde_vox + d_target_tilde_vox * args.beta
+
+
+        except tf.errors.OutOfRangeError:
+            pass
+
+        # best_model = total_cost[0]
+
+        # final_bitstream = [total_bitstream[best_model[i]][i] for i in range(len(blocks))]
+        # final_d_target_hat = [total_d_target_hat[i][best_model[i]] for i in range(len(blocks))]
+        # final_bpv_hat = [total_bpv_hat[i][best_model[i]] for i in range(len(blocks))]
+        # final_loss_hat = [total_loss_quantized_hat[i][best_model[i]] for i in range(len(blocks))]
+        # final_focal_loss_hat = [total_focal_losses_hat[i][best_model[i]] for i in range(len(blocks))]
+        # final_d_target_tilde = [total_d_target_tilde[i][best_model[i]] for i in range(len(blocks))]
+        # final_bpv_tilde = [total_bpv_tilde[i][best_model[i]] for i in range(len(blocks))]
+        # final_loss_tilde = [total_loss_quantized_tilde[i][best_model[i]] for i in range(len(blocks))]
+        # final_focal_loss_tilde = [total_focal_losses_tilde[i][best_model[i]] for i in range(len(blocks))]
+        # final_total_bpv = [total_bpv[i][best_model[i]] for i in range(len(blocks))]
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), "wb") as f:
-            pickle.dump([args.blk_size, best_model, final_bitstream], f)
+            pickle.dump([args.blk_size, blk_map,  bitstream], f)
         
         with open(os.path.join(stream_dir, pc_filename + "_statistics.txt"), "w") as f:
             f.write(f"bpv: {final_bpv}\n")
-            f.write("Final Blocks bpv: " + ', '.join(map(str, final_total_bpv)) + '\n')
-            f.write("Final Focal Losses Hat: " + ', '.join(map(str, final_focal_loss_hat)) + '\n')
-            f.write("Final d_targets Hat: " + ', '.join(map(str, final_d_target_hat)) + '\n')
-            f.write("Final BPVs Hat: " + ', '.join(map(str, final_bpv_hat)) + '\n')
-            f.write("Final Quantized Losses Hat: " + ', '.join(map(str, final_loss_hat)) + '\n')
-            f.write("Final Focal Losses Tilde: " + ', '.join(map(str, final_focal_loss_tilde)) + '\n')
-            f.write("Final d_targets Tilde: " + ', '.join(map(str, final_d_target_tilde)) + '\n')
-            f.write("Final BPVs Tilde: " + ', '.join(map(str, final_bpv_tilde)) + '\n')
-            f.write("Final Quantized Losses Tilde: " + ', '.join(map(str, final_loss_tilde)) + '\n')
-            # f.write(f"total_cost: {total_cost}")
+            f.write("Final points per voxel: " + ', '.join(map(str, total_num_points)) + '\n')
+            f.write("Final Blocks bpv: " + ', '.join(map(str, total_bpv)) + '\n')
+            f.write("Final Focal Losses Hat: " + ', '.join(map(str, total_focal_losses_hat)) + '\n')
+            f.write("Final d_targets Hat: " + ', '.join(map(str, total_d_target_hat)) + '\n')
+            f.write("Final BPVs Hat: " + ', '.join(map(str, total_bpv_hat)) + '\n')
+            f.write("Final Quantized Losses Hat: " + ', '.join(map(str, total_loss_quantized_hat)) + '\n')
+            f.write("Final Focal Losses Tilde: " + ', '.join(map(str, total_focal_losses_tilde)) + '\n')
+            f.write("Final d_targets Tilde: " + ', '.join(map(str, total_d_target_tilde)) + '\n')
+            f.write("Final BPVs Tilde: " + ', '.join(map(str, total_bpv_tilde)) + '\n')
+            f.write("Final Quantized Losses Tilde: " + ', '.join(map(str, total_loss_quantized_tilde)) + '\n')
 
         with open(os.path.join(stream_dir, pc_filename + ".pkl"), 'rb') as f_in:
             with gzip.open(os.path.join(stream_dir, pc_filename + ".pkl.gz"), 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
         os.remove(os.path.join(stream_dir, pc_filename + ".pkl"))
+
 
 
 def decompress(args):
@@ -444,38 +475,34 @@ def decompress(args):
                 shutil.copyfileobj(f_in, f_out)
 
         with open(stream_filename + ".dec.pkl", "rb") as f:
-            blk_size, best_model, final_bitstream = pickle.load(f)
+            blk_size, blk_map, final_bitstream = pickle.load(f)
 
         try:
             # Initialize the reconstructed PC (empty)
             pts_geom = np.array([], dtype=np.int32).reshape(0, 3)
 
+            blk_map
             # Iterate each model
-            for j in range(len(model_names)):
-                # Load the latest model checkpoint
-                latest = tf.train.latest_checkpoint(checkpoint_dir=model_names[j])
-                tf.train.Saver().restore(sess, save_path=latest)
+            # for j in range(len(model_names)):
+            # Load the latest model checkpoint
+            latest = tf.train.latest_checkpoint(checkpoint_dir=model_names[0])
+            tf.train.Saver().restore(sess, save_path=latest)
                 # Iterate all blocks
-                for i in range(len(best_model)):
-                    if best_model[i] == j:
-                        # Unpack string corresponding to the coded block
-                        packed = tfc.PackedTensors(final_bitstream[i])
-                        arrays = packed.unpack(tensors)
-                        # Decode block
-                        x_rec = sess.run(x_hat, feed_dict=dict(zip(tensors + [x_shape], arrays + [[blk_size, blk_size, blk_size]])))
-                        # Convert back to point coordinates
-                        vox_data = np.greater_equal(np.squeeze(x_rec), 0.5)
-                        # points = pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5))
-                        # points = points + (blk_size * blk_map[i])
-                        # Merge block points in the fully reconstructed PC
-                        # pts_geom = np.concatenate((pts_geom, points))
+            for i in range(blk_map.shape[0]):
+                #     if best_model[i] == j:
+                    # Unpack string corresponding to the coded block
+                    packed = tfc.PackedTensors(final_bitstream[i])
+                    arrays = packed.unpack(tensors)
+                    # Decode block
+                    x_rec = sess.run(x_hat, feed_dict=dict(zip(tensors + [x_shape], arrays + [[blk_size, blk_size, blk_size]])))
+                    # Convert back to point coordinates
+                    points = pc2vox.vox2point(np.greater_equal(np.squeeze(x_rec), 0.5))
+                    points = points + (blk_size * blk_map[i])
+                    # Merge block points in the fully reconstructed PC
+                    pts_geom = np.concatenate((pts_geom, points))
 
             # Write reconstructed PC to file
-            # pc2vox.save_pc(pts_geom, stream_filename + ".dec.ply")
-            block_save_path = Path.joinpath(Path(stream_filename).parent, "blocks")
-            Path.mkdir(block_save_path, parents=True, exist_ok=True)
-            for j in range(64):
-                np.save(Path.joinpath(block_save_path, f"block_{j:04d}.npy"), vox_data[j])
+            pc2vox.save_pc(pts_geom, stream_filename + ".dec.ply")
             os.remove(stream_filename + ".dec.pkl")
 
         except tf.errors.OutOfRangeError:
