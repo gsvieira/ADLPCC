@@ -4,6 +4,7 @@
 *.pyc
 *Training*/
 Experiments/
+experiments*/
 MPEG*/
 .dev*/
 .vscode/
